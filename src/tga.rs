@@ -1,5 +1,5 @@
 use std::default::Default;
-use std::io::{File,BufferedWriter};
+use std::io::{File,BufferedWriter,BufferedReader};
 
 pub struct RgbaColor(pub u32);
 
@@ -38,6 +38,10 @@ impl TgaPixel {
         self.b = color.get_b();
         self.a = color.get_a();
     }
+
+    pub fn get_color(&self) -> RgbaColor {
+        RgbaColor((self.r as u32) << 24 | (self.g as u32) << 16 | (self.b as u32) << 8)
+    }
 }
 
 pub struct TgaImage {
@@ -66,6 +70,13 @@ impl TgaImage {
         };
     }
 
+    pub fn get_pixel(&self, x: i32, y: i32) -> RgbaColor {
+        match self.pixels.get((x + self.height * y) as usize) {
+            Some(pixel) => { pixel.get_color() },
+            None => { panic!("Can't read pixel at x: {}, y: {}", x, y) }
+        }
+    }
+
     pub fn write_to_file(&self, filename: Path) {
         let file = match File::create(&filename) {
             Err(why) => panic!("couldn't create {}: {}", filename.display(), why.desc),
@@ -87,5 +98,59 @@ impl TgaImage {
         }
 
         writer.flush().unwrap();
+    }
+
+    pub fn new_from_file(filename: Path) -> TgaImage {
+        let file = match File::open(&filename) {
+            Err(why) => panic!("couldn't open {}: {}", filename.display(), why.desc),
+            Ok(file) => file
+        };
+
+        let mut reader = BufferedReader::new(file);
+
+        let id_len = reader.read_u8().unwrap();
+        let color_map_type = reader.read_u8().unwrap();
+        let data_type = reader.read_u8().unwrap();
+        reader.read_exact(5).unwrap(); // skip color map info
+        let x_origin = reader.read_le_i16().unwrap();
+        let y_origin = reader.read_le_i16().unwrap();
+        let width = reader.read_le_i16().unwrap() as i32;
+        let height = reader.read_le_i16().unwrap() as i32;
+        let bpp = reader.read_u8().unwrap();
+        let img_desc = reader.read_u8().unwrap();
+
+        if (color_map_type != 0) {
+            panic!("Can't read files with color map");
+        }
+
+        println!("{}x{}, {} bits per pixel; data type = {}", width, height, bpp, data_type);
+
+        reader.read_exact(id_len as usize);
+        // TODO: Read/skip color map data?
+
+        let mut image = TgaImage::new(width, height);
+        let mut pixel:i32 = 0;
+
+        while pixel < width * height {
+            let packet = reader.read_u8().unwrap();
+            let count = (packet & 127) + 1;
+            let mut bgr:Vec<u8> = vec![0, 0, 0];
+
+            if packet & 128 > 0 {
+                bgr = reader.read_exact(3).unwrap();
+                for _ in range(0, count) {
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor((bgr[2] as u32) << 24 | (bgr[1] as u32) << 16 | (bgr[0] as u32) << 8));
+                    pixel += 1;
+                }
+            } else {
+                for _ in range(0, count) {
+                    bgr = reader.read_exact(3).unwrap();
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor((bgr[2] as u32) << 24 | (bgr[1] as u32) << 16 | (bgr[0] as u32) << 8));
+                    pixel += 1;
+                }
+            }
+        }
+        
+        return image;
     }
 }
