@@ -1,0 +1,9 @@
+[package]
+
+name = "renderer"
+version = "0.0.1"
+authors = [ "Artem K. <zeqfreed@gmail.com>" ]
+
+[[bin]]
+
+name = "renderer"
