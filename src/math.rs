@@ -1,7 +1,7 @@
 use std::num::Float;
-use std::ops::{Sub,Mul,BitXor};
+use std::ops::{Add,Sub,Mul,Div,BitXor};
 
-#[derive(Copy)]
+#[derive(Show,Copy)]
 pub struct Vec3f {
     pub x: f32,
     pub y: f32,
@@ -9,14 +9,15 @@ pub struct Vec3f {
 }
 
 #[derive(Copy)]
-pub struct Point {
+pub struct Vec3i {
     pub x: i32,
-    pub y: i32
+    pub y: i32,
+    pub z: i32
 }
 
-impl Point {
-    pub fn new(x: i32, y: i32) -> Point {
-        Point {x: x, y: y}
+impl Vec3i {
+    pub fn new(x: i32, y: i32, z: i32) -> Vec3i {
+        Vec3i {x: x, y: y, z: z}
     }
 }
 
@@ -34,9 +35,19 @@ impl Vec3f {
     }
 }
 
+impl Add<Vec3f> for Vec3f {
+    type Output = Vec3f;
+
+    #[inline(always)]
+    fn add(self, other: Vec3f) -> Vec3f {
+        Vec3f::new(self.x + other.x, self.y + other.y, self.z + other.z)
+    }
+}
+
 impl Sub<Vec3f> for Vec3f {
     type Output = Vec3f;
 
+    #[inline(always)]
     fn sub(self, other: Vec3f) -> Vec3f {
         Vec3f::new(self.x - other.x, self.y - other.y, self.z - other.z)
     }
@@ -45,6 +56,7 @@ impl Sub<Vec3f> for Vec3f {
 impl<'a,'b> Sub<&'a Vec3f> for &'b Vec3f {
     type Output = Vec3f;
 
+    #[inline(always)]
     fn sub(self, other: &Vec3f) -> Vec3f {
         Vec3f::new(self.x - other.x, self.y - other.y, self.z - other.z)
     }
@@ -53,6 +65,7 @@ impl<'a,'b> Sub<&'a Vec3f> for &'b Vec3f {
 impl BitXor<Vec3f> for Vec3f {
     type Output = Vec3f;
 
+    #[inline(always)]
     fn bitxor(self, other: Vec3f) -> Vec3f {
         Vec3f::new(
             self.y * other.z - self.z * other.y,
@@ -65,14 +78,25 @@ impl BitXor<Vec3f> for Vec3f {
 impl Mul<f32> for Vec3f {
     type Output = Vec3f;
 
+    #[inline(always)]
     fn mul(self, f:f32) -> Vec3f {
         Vec3f::new(self.x * f, self.y * f, self.z * f)
+    }
+}
+
+impl Div<f32> for Vec3f {
+    type Output = Vec3f;
+
+    #[inline(always)]
+    fn div(self, f:f32) -> Vec3f {
+        Vec3f::new(self.x / f, self.y / f, self.z / f)
     }
 }
 
 impl Mul<Vec3f> for Vec3f {
     type Output = f32;
 
+    #[inline(always)]
     fn mul(self, other: Vec3f) -> f32 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }

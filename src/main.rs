@@ -8,7 +8,7 @@ mod math;
 
 use tga::{TgaImage,RgbaColor};
 use model::Model;
-use math::{Point,Vec3f};
+use math::{Vec3i,Vec3f};
 
 mod colors {
     use tga::RgbaColor;
@@ -21,12 +21,16 @@ mod colors {
 }
 
 struct Renderer {
-    image: TgaImage
+    image: TgaImage,
+    zbuffer: Vec<i32>
 }
 
 impl Renderer {
     pub fn new(image: TgaImage) -> Renderer {
-        return Renderer { image: image };
+        let size = (image.width * image.height) as usize;
+        let mut zbuffer = Vec::with_capacity(size);
+        for _ in range(0, size) { zbuffer.push(-1000000); };
+        return Renderer { image: image, zbuffer: zbuffer };
     }
 
     pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: &RgbaColor) {
@@ -55,9 +59,12 @@ impl Renderer {
         self.image.set_pixel(x, y, color);
     }
 
-    pub fn triangle(&mut self, p0: Point, p1: Point, p2: Point, color: &RgbaColor) {
-        let mut points = vec![p0, p1, p2];
+    pub fn triangle(&mut self, p0: Vec3f, p1: Vec3f, p2: Vec3f, color: &RgbaColor) {
+        if p0.x == p1.x && p1.x == p2.x {
+            return;
+        }
 
+        let mut points = vec![p0, p1, p2];
         {
             let mut slice = points.as_mut_slice();
             if slice[2].x < slice[1].x { slice.swap(1, 2) }
@@ -65,27 +72,43 @@ impl Renderer {
             if slice[2].x < slice[1].x { slice.swap(1, 2) }
         }
 
-        let ys = (points[2].y - points[0].y) as f32 / (points[2].x - points[0].x) as f32;
-        let ys0 = (points[1].y - points[0].y) as f32 / (points[1].x - points[0].x) as f32;
-        let ys1 = (points[2].y - points[1].y) as f32 / (points[2].x - points[1].x) as f32;
+        let a = points[2] - points[0]; // a - long side vector, b and c - short sides
+        let b = points[1] - points[0];
+        let c = points[2] - points[1];
 
-        let mut x = points[0].x;
-        let mut y = points[0].y;
-        let mut yc = y;
+        let mut pa = points[0];
+        let mut pbc = points[0];
 
-        let s2 = (points[1].x - points[0].x) as f32;
+        let a_xlen = (points[2].x - points[0].x);
+        let b_xlen = (points[1].x - points[0].x);
+        let c_xlen = (points[2].x - points[1].x);
+        let mut x = points[0].x.ceil() as i32;
         let mut step = 0f32;
 
-        while x < points[2].x {
-            y = (points[0].y as f32 + step * ys) as i32;
-            if x < points[1].x {
-                yc = (points[0].y as f32 + step * ys0) as i32;
+        while x < points[2].x as i32 {
+            pa = points[0] + a * (step / a_xlen);
+
+            if step <= b_xlen && b_xlen != 0.0 {
+                pbc = points[0] + b * (step / b_xlen);
             } else {
-                yc = (points[1].y as f32 + (step - s2) * ys1) as i32;
+                pbc = points[1] + c * ((step - b_xlen) / c_xlen);
             }
 
-            for ly in range(std::cmp::min(y, yc), std::cmp::max(y, yc) + 1) {
-                self.image.set_pixel(x, ly, color);
+            // Vertical sweep of triangle pixels
+            let mut y = pbc.y as i32;
+            let dz = pbc.z - pa.z;
+            let ylen = (pa.y - pbc.y).abs().ceil() + 1.0;
+            let ystep = (pa.y - pbc.y).signum() as i32;
+            for i in range(0, ylen as i32) {
+                let z = (pa.z + dz * (i as f32 / ylen)) as i32;
+                let idx = (x + self.image.height * y) as usize;
+
+                if (idx < self.zbuffer.len() && self.zbuffer[idx] < z) {
+                    self.zbuffer[idx] = z;
+                    self.image.set_pixel(x, y, color);
+                }
+
+                y += ystep;
             }
 
             x += 1;
@@ -94,26 +117,28 @@ impl Renderer {
     }
 
     pub fn draw_model(&mut self, model: Model) {
-        let half_width = self.image.width as f32 / 2.0;
-        let half_height = self.image.height as f32 / 2.0;
+        let half_width = (self.image.width as f32) / 2.0;
+        let half_height = (self.image.height as f32) / 2.0;
+        let half_depth = 255f32 / 2f32;
 
-        let mut points: [Point; 3] = unsafe { std::mem::uninitialized() };
-        let mut vertices: [&Vec3f; 3] = unsafe { std::mem::uninitialized() };
+        let mut screen_coords: [Vec3f; 3] = unsafe { std::mem::uninitialized() };
+        let mut world_coords: [&Vec3f; 3] = unsafe { std::mem::uninitialized() };
         let light_dir = Vec3f::new(0f32, 0f32, -1f32).normalize();
 
         for face in model.faces.iter() {
             for i in range(0, 3) {
                 let v = model.vertices.get(face[i] as usize).unwrap();
-                vertices[i] = v;
-                points[i] = Point {x: ((v.x + 1.0) * half_width) as i32, y: ((v.y + 1.0) * half_height) as i32};
+                world_coords[i] = v;
+                screen_coords[i] = Vec3f::new(((v.x + 1.0) * half_width).floor(), ((v.y + 1.0) * half_height).floor(), ((v.z + 1.0) * half_depth).floor());
             }
 
-            let normal: Vec3f = ((vertices[2] - vertices[0]) ^ (vertices[1] - vertices[0])).normalize();
+            let normal: Vec3f = ((world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0])).normalize();
             let intensity:f32 = light_dir * normal;
 
             if (intensity > 0f32) {
                 let grey = (255f32 * intensity) as u32;
-                self.triangle(points[0], points[1], points[2], &RgbaColor(grey << 8 | grey << 16 | grey << 24));
+                let color = RgbaColor(grey << 8 | grey << 16 | grey << 24);
+                self.triangle(screen_coords[0], screen_coords[1], screen_coords[2], &color);
             }
         }
     }
@@ -127,5 +152,7 @@ fn main() {
 
     let mut renderer = Renderer::new(TgaImage::new(width, height));
     renderer.draw_model(model);
+    //renderer.triangle(Vec3f::new(0.0, 0.0, 0.0), Vec3f::new(0.0, 50.0, 50.0), Vec3f::new(50.0, 50.0, 0.0), &colors::RED);
+    //renderer.triangle(Vec3f::new(0.0, 0.0, 0.0), Vec3f::new(50.0, 50.0, 50.0), Vec3f::new(50.0, 0.0, 0.0), &colors::BLUE);
     renderer.image.write_to_file(Path::new("output.tga"));
 }
