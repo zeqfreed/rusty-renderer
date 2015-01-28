@@ -2,6 +2,18 @@ use std::num::Float;
 use std::ops::{Add,Sub,Mul,Div,BitXor};
 
 #[derive(Show,Copy)]
+pub struct Vec2<T> {
+    pub x: T,
+    pub y: T
+}
+
+pub type Vec2f = Vec2<f32>;
+impl Vec2f {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32) -> Vec2f { Vec2::<f32>::new(x, y) }
+}
+
+#[derive(Show,Copy)]
 pub struct Vec3f {
     pub x: f32,
     pub y: f32,
@@ -18,6 +30,39 @@ pub struct Vec3i {
 impl Vec3i {
     pub fn new(x: i32, y: i32, z: i32) -> Vec3i {
         Vec3i {x: x, y: y, z: z}
+    }
+}
+
+impl<T> Vec2<T> {
+    pub fn new(x: T, y: T) -> Vec2<T> {
+        Vec2::<T> {x: x, y: y}
+    }
+}
+
+impl<T> Mul<T> for Vec2<T>
+    where T: Mul<T, Output=T> + Copy {
+    type Output = Vec2<T>;
+
+    fn mul(self, rhs: T) -> Vec2<T> {
+        Vec2::<T>::new(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl<T> Add<Vec2<T>> for Vec2<T>
+    where T: Add<T, Output=T> {
+    type Output = Vec2<T>;
+
+    fn add(self, rhs: Vec2<T>) -> Vec2<T> {
+        Vec2::<T>::new(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
+impl<T> Sub<Vec2<T>> for Vec2<T>
+    where T: Sub<T, Output=T> {
+    type Output = Vec2<T>;
+
+    fn sub(self, rhs: Vec2<T>) -> Vec2<T> {
+        Vec2::<T>::new(self.x - rhs.x, self.y - rhs.y)
     }
 }
 

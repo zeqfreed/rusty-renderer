@@ -8,7 +8,7 @@ mod math;
 
 use tga::{TgaImage,RgbaColor};
 use model::Model;
-use math::{Vec3i,Vec3f};
+use math::{Vec2f,Vec3i,Vec3f};
 
 mod colors {
     use tga::RgbaColor;
@@ -20,17 +20,37 @@ mod colors {
     pub static YELLOW:RgbaColor = RgbaColor(0xFFFF0000);
 }
 
+#[derive(Copy)]
+struct Vertex {
+    p: Vec3f,
+    t: Vec2f
+}
+
+impl Vertex {
+    pub fn new(x: f32, y: f32, z: f32) -> Vertex {
+        Vertex { p: Vec3f::new(x, y, z), t: Vec2f::new(0.0, 0.0) }
+    }
+}
+
 struct Renderer {
     image: TgaImage,
+    diffuse: Option<TgaImage>,
     zbuffer: Vec<i32>
 }
 
 impl Renderer {
-    pub fn new(image: TgaImage) -> Renderer {
+    pub fn new(width: i32, height: i32) -> Renderer {
+        let image = TgaImage::new(width, height);
+
         let size = (image.width * image.height) as usize;
         let mut zbuffer = Vec::with_capacity(size);
         for _ in range(0, size) { zbuffer.push(-1000000); };
-        return Renderer { image: image, zbuffer: zbuffer };
+
+        return Renderer { image: image, zbuffer: zbuffer, diffuse: None };
+    }
+
+    pub fn set_diffuse(&mut self, diffuse: TgaImage) {
+        self.diffuse = Some(diffuse);
     }
 
     pub fn line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: &RgbaColor) {
@@ -59,60 +79,83 @@ impl Renderer {
         self.image.set_pixel(x, y, color);
     }
 
-    pub fn triangle(&mut self, p0: Vec3f, p1: Vec3f, p2: Vec3f, color: &RgbaColor) {
-        if p0.x == p1.x && p1.x == p2.x {
+    pub fn triangle(&mut self, v0: Vertex, v1: Vertex, v2: Vertex, color: &RgbaColor, intensity: f32) {
+        if v0.p.x == v1.p.x && v1.p.x == v2.p.x {
             return;
         }
 
-        let mut points = vec![p0, p1, p2];
+        let mut verts = vec![v0, v1, v2];
         {
-            let mut slice = points.as_mut_slice();
-            if slice[2].x < slice[1].x { slice.swap(1, 2) }
-            if slice[1].x < slice[0].x { slice.swap(1, 0) }
-            if slice[2].x < slice[1].x { slice.swap(1, 2) }
+            let mut slice = verts.as_mut_slice();
+            if slice[2].p.x < slice[1].p.x { slice.swap(1, 2) }
+            if slice[1].p.x < slice[0].p.x { slice.swap(1, 0) }
+            if slice[2].p.x < slice[1].p.x { slice.swap(1, 2) }
         }
 
-        let a = points[2] - points[0]; // a - long side vector, b and c - short sides
-        let b = points[1] - points[0];
-        let c = points[2] - points[1];
+        // Vectors representing triangle sides, used for interpolation
+        // a - long side
+        // b and c - short sides
+        let a = verts[2].p - verts[0].p;  // position vectors
+        let b = verts[1].p - verts[0].p;
+        let c = verts[2].p - verts[1].p;
 
-        let mut pa = points[0];
-        let mut pbc = points[0];
+        let ta = verts[2].t - verts[0].t; // texture coords vectors
+        let tb = verts[1].t - verts[0].t;
+        let tc = verts[2].t - verts[1].t;
 
-        let a_xlen = (points[2].x - points[0].x);
-        let b_xlen = (points[1].x - points[0].x);
-        let c_xlen = (points[2].x - points[1].x);
-        let mut x = points[0].x.ceil() as i32;
-        let mut step = 0f32;
+        let a_xlen = verts[2].p.x - verts[0].p.x;
+        let b_xlen = verts[1].p.x - verts[0].p.x;
+        let c_xlen = verts[2].p.x - verts[1].p.x;
 
-        while x < points[2].x as i32 {
-            pa = points[0] + a * (step / a_xlen);
+        let mut pa = verts[0].p;
+        let mut pbc = verts[0].p;
+        let mut t = verts[0].t;
+        let mut tbc = verts[0].t;
+        let mut xstep = 0f32;
 
-            if step <= b_xlen && b_xlen != 0.0 {
-                pbc = points[0] + b * (step / b_xlen);
+        while xstep < a_xlen {
+            let a_coef = xstep / a_xlen;
+            pa = verts[0].p + a * a_coef;
+            t = verts[0].t + ta * a_coef;
+
+            if xstep <= b_xlen && b_xlen != 0.0 {
+                let b_coef = xstep / b_xlen;
+                pbc = verts[0].p + b * b_coef;
+                tbc = verts[0].t + tb * b_coef;
             } else {
-                pbc = points[1] + c * ((step - b_xlen) / c_xlen);
+                let c_coef = (xstep - b_xlen) / c_xlen;
+                pbc = verts[1].p + c * c_coef;
+                tbc = verts[1].t + tc * c_coef;
             }
 
             // Vertical sweep of triangle pixels
-            let mut y = pbc.y as i32;
-            let dz = pbc.z - pa.z;
-            let ylen = (pa.y - pbc.y).abs().ceil() + 1.0;
-            let ystep = (pa.y - pbc.y).signum() as i32;
-            for i in range(0, ylen as i32) {
-                let z = (pa.z + dz * (i as f32 / ylen)) as i32;
-                let idx = (x + self.image.height * y) as usize;
+            let ylen = (pa.y - pbc.y).abs().round() + 1.0; // Attempt to fix what appears to be a floating precision error
+            let mut ystep = 0f32;
 
-                if (idx < self.zbuffer.len() && self.zbuffer[idx] < z) {
-                    self.zbuffer[idx] = z;
-                    self.image.set_pixel(x, y, color);
+            while ystep <= ylen {
+                let y_coef = ystep / ylen;
+                let p = pbc + (pa - pbc) * y_coef;
+                let idx = (p.x as i32 + self.image.height * p.y as i32) as usize;
+
+                if (idx < self.zbuffer.len() && self.zbuffer[idx] < p.z as i32) {
+                    self.zbuffer[idx] = p.z as i32;
+
+                    let c = match self.diffuse.as_mut() {
+                        Some(v) => {
+                            let tp = tbc + (t - tbc) * y_coef;
+                            v.get_pixel((tp.x * v.width as f32) as i32, (tp.y * v.height as f32) as i32)
+                        },
+                        None => { color.clone() }
+                    };
+
+                    let color = RgbaColor::from_rgba((c.get_r() as f32 * intensity) as u8, (c.get_g() as f32 * intensity) as u8, (c.get_b() as f32 * intensity) as u8, 0);
+                    self.image.set_pixel(p.x as i32, p.y as i32, &color);
                 }
 
-                y += ystep;
+                ystep += 1.0;
             }
 
-            x += 1;
-            step += 1.0;
+            xstep += 1.0;
         }
     }
 
@@ -121,38 +164,49 @@ impl Renderer {
         let half_height = (self.image.height as f32) / 2.0;
         let half_depth = 255f32 / 2f32;
 
-        let mut screen_coords: [Vec3f; 3] = unsafe { std::mem::uninitialized() };
+        let mut vertices: [Vertex; 3] = unsafe { std::mem::uninitialized() };
         let mut world_coords: [&Vec3f; 3] = unsafe { std::mem::uninitialized() };
         let light_dir = Vec3f::new(0f32, 0f32, -1f32).normalize();
 
         for face in model.faces.iter() {
             for i in range(0, 3) {
-                let v = model.vertices.get(face[i] as usize).unwrap();
+                let v = model.vertices.get(face[i+2*i] as usize).unwrap();
+                let t = model.texture_coords.get(face[i+2*i+1] as usize).unwrap();
+
                 world_coords[i] = v;
-                screen_coords[i] = Vec3f::new(((v.x + 1.0) * half_width).floor(), ((v.y + 1.0) * half_height).floor(), ((v.z + 1.0) * half_depth).floor());
+                vertices[i] = Vertex {
+                    p: Vec3f::new(
+                        ((v.x + 1.0) * half_width).floor(),
+                        ((v.y + 1.0) * half_height).floor(),
+                        ((v.z + 1.0) * half_depth).floor()
+                    ),
+                    t: Vec2f::new(t.x, t.y)
+                };
             }
 
             let normal: Vec3f = ((world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0])).normalize();
-            let intensity:f32 = light_dir * normal;
+            let mut intensity:f32 = light_dir * normal;
 
-            if (intensity > 0f32) {
-                let grey = (255f32 * intensity) as u32;
-                let color = RgbaColor(grey << 8 | grey << 16 | grey << 24);
-                self.triangle(screen_coords[0], screen_coords[1], screen_coords[2], &color);
+            if (intensity > 0.0) {
+                self.triangle(vertices[0], vertices[1], vertices[2], &colors::WHITE, intensity);
             }
         }
     }
 }
 
 fn main() {
-    let width:i32 = 1000;
-    let height:i32 = 1000;
+    let width:i32 = 800;
+    let height:i32 = 800;
 
     let model = Model::load_from_file(Path::new("data/model.obj"));
+    println!("read model; vertices: {}, texture coordinates: {}, faces: {}", model.vertices.len(), model.texture_coords.len(), model.faces.len());
 
-    let mut renderer = Renderer::new(TgaImage::new(width, height));
+    let diffuse = TgaImage::new_from_file(Path::new("data/diffuse.tga"));
+
+    let mut renderer = Renderer::new(width, height);
+    renderer.set_diffuse(diffuse);
     renderer.draw_model(model);
-    //renderer.triangle(Vec3f::new(0.0, 0.0, 0.0), Vec3f::new(0.0, 50.0, 50.0), Vec3f::new(50.0, 50.0, 0.0), &colors::RED);
-    //renderer.triangle(Vec3f::new(0.0, 0.0, 0.0), Vec3f::new(50.0, 50.0, 50.0), Vec3f::new(50.0, 0.0, 0.0), &colors::BLUE);
+    //renderer.triangle(Vertex::new(0.0, 0.0, 0.0), Vertex::new(0.0, 50.0, 50.0), Vertex::new(50.0, 50.0, 0.0), &colors::RED, 1.0);
+    //renderer.triangle(Vertex::new(0.0, 0.0, 0.0), Vertex::new(50.0, 50.0, 50.0), Vertex::new(50.0, 0.0, 0.0), &colors::BLUE, 1.0);
     renderer.image.write_to_file(Path::new("output.tga"));
 }

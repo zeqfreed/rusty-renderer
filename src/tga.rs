@@ -4,17 +4,22 @@ use std::io::{File,BufferedWriter,BufferedReader};
 pub struct RgbaColor(pub u32);
 
 impl RgbaColor {
-    #[inline]
+    #[inline(always)]
     pub fn get_r(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0xFF000000) >> 24) as u8 } }
 
-    #[inline]
+    #[inline(always)]
     pub fn get_g(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x00FF0000) >> 16) as u8 } }
 
-    #[inline]
+    #[inline(always)]
     pub fn get_b(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x0000FF00) >>  8) as u8 } }
 
-    #[inline]
+    #[inline(always)]
     pub fn get_a(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x000000FF)) as u8 } }
+
+    #[inline(always)]
+    pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> RgbaColor {
+        RgbaColor((r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8)
+    }
 }
 
 impl Clone for RgbaColor {
