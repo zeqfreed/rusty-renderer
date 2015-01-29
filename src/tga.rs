@@ -141,8 +141,8 @@ impl TgaImage {
         writer.flush().unwrap();
     }
 
-    pub fn new_from_file(filename: Path) -> TgaImage {
-        let file = match File::open(&filename) {
+    pub fn new_from_file(filename: &Path) -> TgaImage {
+        let file = match File::open(filename) {
             Err(why) => panic!("couldn't open {}: {}", filename.display(), why.desc),
             Ok(file) => file
         };

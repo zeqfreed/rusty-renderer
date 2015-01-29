@@ -12,8 +12,8 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load_from_file(filename: Path) -> Model {
-        let file = match File::open(&filename) {
+    pub fn new_from_file(filename: &Path) -> Model {
+        let file = match File::open(filename) {
             Err(why) => panic!("couldn't read {}: {}", filename.display(), why.desc),
             Ok(file) => file
         };

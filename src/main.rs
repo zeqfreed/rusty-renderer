@@ -189,15 +189,12 @@ fn main() {
     let width:i32 = 800;
     let height:i32 = 800;
 
-    let model = Model::load_from_file(Path::new("data/model.obj"));
-    println!("read model; vertices: {}, texture coordinates: {}, faces: {}", model.vertices.len(), model.texture_coords.len(), model.faces.len());
-
-    let diffuse = TgaImage::new_from_file(Path::new("data/diffuse.tga"));
+    let model = Model::new_from_file(&Path::new("data/model.obj"));
+    let diffuse = TgaImage::new_from_file(&Path::new("data/diffuse.tga"));
 
     let mut renderer = Renderer::new(width, height);
     renderer.set_diffuse(diffuse);
     renderer.draw_model(model);
-    //renderer.triangle(Vertex::new(0.0, 0.0, 0.0), Vertex::new(0.0, 50.0, 50.0), Vertex::new(50.0, 50.0, 0.0), &colors::RED, 1.0);
-    //renderer.triangle(Vertex::new(0.0, 0.0, 0.0), Vertex::new(50.0, 50.0, 50.0), Vertex::new(50.0, 0.0, 0.0), &colors::BLUE, 1.0);
+
     renderer.image.write_to_file(Path::new("output.tga"));
 }
