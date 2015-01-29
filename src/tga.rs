@@ -1,30 +1,65 @@
 use std::default::Default;
 use std::io::{File,BufferedWriter,BufferedReader};
+use std::ops::{Add,Mul};
+use std::borrow::ToOwned;
+use std::num::Float;
 
-pub struct RgbaColor(pub u32);
+macro_rules! clamp(
+    ($a:expr, $min:expr, $max:expr) => ($a.min($max).max($min));
+);
+
+#[derive(Copy)]
+pub struct RgbaColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32
+}
 
 impl RgbaColor {
     #[inline(always)]
-    pub fn get_r(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0xFF000000) >> 24) as u8 } }
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> RgbaColor {
+        RgbaColor {r: r, g: g, b: b, a: a}
+    }
 
-    #[inline(always)]
-    pub fn get_g(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x00FF0000) >> 16) as u8 } }
+    pub fn new_from_u8(r: u8, g: u8, b: u8, a: u8) -> RgbaColor {
+        RgbaColor::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, a as f32 / 255.0)
+    }
 
-    #[inline(always)]
-    pub fn get_b(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x0000FF00) >>  8) as u8 } }
-
-    #[inline(always)]
-    pub fn get_a(&self) -> u8 { match *self { RgbaColor(v) => ((v & 0x000000FF)) as u8 } }
-
-    #[inline(always)]
-    pub fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> RgbaColor {
-        RgbaColor((r as u32) << 24 | (g as u32) << 16 | (b as u32) << 8)
+    pub fn clamp(&mut self) -> RgbaColor {
+        self.r = clamp!(self.r, 0.0, 1.0);
+        self.g = clamp!(self.g, 0.0, 1.0);
+        self.b = clamp!(self.b, 0.0, 1.0);
+        self.a = clamp!(self.a, 0.0, 1.0);
+        *self
     }
 }
 
-impl Clone for RgbaColor {
-    fn clone(&self) -> RgbaColor {
-        match *self { RgbaColor(v) => RgbaColor(v) }
+impl ToOwned<RgbaColor> for RgbaColor {
+    fn to_owned(&self) -> RgbaColor { *self.clone() }
+}
+
+impl Mul<f32> for RgbaColor {
+    type Output = RgbaColor;
+
+    #[inline(always)]
+    fn mul(self, rhs: f32) -> RgbaColor {
+        let r = self.r * rhs;
+        let g = self.g * rhs;
+        let b = self.b * rhs;
+
+        let mut c = RgbaColor {r: r, g: g, b: b, a: self.a};
+        c.clamp()
+    }
+}
+
+impl Add<RgbaColor> for RgbaColor {
+    type Output = RgbaColor;
+
+    #[inline(always)]
+    fn add(self, rhs: RgbaColor) -> RgbaColor {
+        let mut result = RgbaColor::new(self.r + rhs.r, self.g + rhs.g, self.b + rhs.b, self.a);
+        result.clamp()
     }
 }
 
@@ -38,14 +73,15 @@ pub struct TgaPixel {
 
 impl TgaPixel {
     pub fn set_color(&mut self, color: &RgbaColor) {
-        self.r = color.get_r();
-        self.g = color.get_g();
-        self.b = color.get_b();
-        self.a = color.get_a();
+        let c = color.to_owned().clamp();
+        self.r = (c.r * 255.0) as u8;
+        self.g = (c.g * 255.0) as u8;
+        self.b = (c.b * 255.0) as u8;
+        self.a = (c.a * 255.0) as u8;
     }
 
     pub fn get_color(&self) -> RgbaColor {
-        RgbaColor((self.r as u32) << 24 | (self.g as u32) << 16 | (self.b as u32) << 8)
+        RgbaColor::new_from_u8(self.r, self.g, self.b, self.a)
     }
 }
 
@@ -128,8 +164,6 @@ impl TgaImage {
             panic!("Can't read files with color map");
         }
 
-        println!("{}x{}, {} bits per pixel; data type = {}", width, height, bpp, data_type);
-
         reader.read_exact(id_len as usize);
         // TODO: Read/skip color map data?
 
@@ -144,13 +178,13 @@ impl TgaImage {
             if packet & 128 > 0 {
                 bgr = reader.read_exact(3).unwrap();
                 for _ in range(0, count) {
-                    image.set_pixel(pixel % width, pixel / width, &RgbaColor((bgr[2] as u32) << 24 | (bgr[1] as u32) << 16 | (bgr[0] as u32) << 8));
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(bgr[2], bgr[1], bgr[0], 255));
                     pixel += 1;
                 }
             } else {
                 for _ in range(0, count) {
                     bgr = reader.read_exact(3).unwrap();
-                    image.set_pixel(pixel % width, pixel / width, &RgbaColor((bgr[2] as u32) << 24 | (bgr[1] as u32) << 16 | (bgr[0] as u32) << 8));
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(bgr[2], bgr[1], bgr[0], 255));
                     pixel += 1;
                 }
             }

@@ -10,16 +10,6 @@ use tga::{TgaImage,RgbaColor};
 use model::Model;
 use math::{Vec2f,Vec3i,Vec3f};
 
-mod colors {
-    use tga::RgbaColor;
-
-    pub static RED:RgbaColor = RgbaColor(0xFF000000);
-    pub static GREEN:RgbaColor = RgbaColor(0x00FF0000);
-    pub static BLUE:RgbaColor = RgbaColor(0x0000FF00);
-    pub static WHITE:RgbaColor = RgbaColor(0xFFFFFF00);
-    pub static YELLOW:RgbaColor = RgbaColor(0xFFFF0000);
-}
-
 #[derive(Copy)]
 struct Vertex {
     p: Vec3f,
@@ -145,11 +135,10 @@ impl Renderer {
                             let tp = tbc + (t - tbc) * y_coef;
                             v.get_pixel((tp.x * v.width as f32) as i32, (tp.y * v.height as f32) as i32)
                         },
-                        None => { color.clone() }
+                        None => { *color }
                     };
 
-                    let color = RgbaColor::from_rgba((c.get_r() as f32 * intensity) as u8, (c.get_g() as f32 * intensity) as u8, (c.get_b() as f32 * intensity) as u8, 0);
-                    self.image.set_pixel(p.x as i32, p.y as i32, &color);
+                    self.image.set_pixel(p.x as i32, p.y as i32, &(c * intensity));
                 }
 
                 ystep += 1.0;
@@ -167,6 +156,8 @@ impl Renderer {
         let mut vertices: [Vertex; 3] = unsafe { std::mem::uninitialized() };
         let mut world_coords: [&Vec3f; 3] = unsafe { std::mem::uninitialized() };
         let light_dir = Vec3f::new(0f32, 0f32, -1f32).normalize();
+
+        let white = RgbaColor::new(1.0, 1.0, 1.0, 1.0);
 
         for face in model.faces.iter() {
             for i in range(0, 3) {
@@ -188,7 +179,7 @@ impl Renderer {
             let mut intensity:f32 = light_dir * normal;
 
             if (intensity > 0.0) {
-                self.triangle(vertices[0], vertices[1], vertices[2], &colors::WHITE, intensity);
+                self.triangle(vertices[0], vertices[1], vertices[2], &white, intensity);
             }
         }
     }
