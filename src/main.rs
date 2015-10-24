@@ -1,16 +1,15 @@
-use std::num::SignedInt;
-use std::num::Float;
-use std::rand::{thread_rng, Rng};
 
 mod tga;
 mod model;
 mod math;
 
+use std::path::Path;
+
 use tga::{TgaImage,RgbaColor};
 use model::Model;
-use math::{Vec2f,Vec3i,Vec3f};
+use math::{Vec2f,Vec3f};
 
-#[derive(Copy)]
+#[derive(Clone,Copy)]
 struct Vertex {
     p: Vec3f,
     t: Vec2f
@@ -34,7 +33,7 @@ impl Renderer {
 
         let size = (image.width * image.height) as usize;
         let mut zbuffer = Vec::with_capacity(size);
-        for _ in range(0, size) { zbuffer.push(-1000000); };
+        for _ in 0..size { zbuffer.push(i32::min_value()); };
 
         return Renderer { image: image, zbuffer: zbuffer, diffuse: None };
     }
@@ -57,7 +56,7 @@ impl Renderer {
         let mut x = x0;
         let mut y = y0;
 
-        for _ in range(0, steps) {
+        for _ in 0..steps {
             self.image.set_pixel(x, y, color);
 
             xa += xs;
@@ -76,7 +75,7 @@ impl Renderer {
 
         let mut verts = vec![v0, v1, v2];
         {
-            let mut slice = verts.as_mut_slice();
+            let mut slice = &mut verts[..];
             if slice[2].p.x < slice[1].p.x { slice.swap(1, 2) }
             if slice[1].p.x < slice[0].p.x { slice.swap(1, 0) }
             if slice[2].p.x < slice[1].p.x { slice.swap(1, 2) }
@@ -127,7 +126,7 @@ impl Renderer {
                 let p = pbc + (pa - pbc) * y_coef;
                 let idx = (p.x as i32 + self.image.height * p.y as i32) as usize;
 
-                if (idx < self.zbuffer.len() && self.zbuffer[idx] < p.z as i32) {
+                if idx < self.zbuffer.len() && self.zbuffer[idx] < p.z as i32 {
                     self.zbuffer[idx] = p.z as i32;
 
                     let c = match self.diffuse.as_mut() {
@@ -160,7 +159,7 @@ impl Renderer {
         let white = RgbaColor::new(1.0, 1.0, 1.0, 1.0);
 
         for face in model.faces.iter() {
-            for i in range(0, 3) {
+            for i in 0..3 {
                 let v = model.vertices.get(face[i+2*i] as usize).unwrap();
                 let t = model.texture_coords.get(face[i+2*i+1] as usize).unwrap();
 
@@ -176,9 +175,9 @@ impl Renderer {
             }
 
             let normal: Vec3f = ((world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0])).normalize();
-            let mut intensity:f32 = light_dir * normal;
+            let intensity = light_dir * normal;
 
-            if (intensity > 0.0) {
+            if intensity > 0.0 {
                 self.triangle(vertices[0], vertices[1], vertices[2], &white, intensity);
             }
         }

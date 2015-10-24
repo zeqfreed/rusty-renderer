@@ -1,7 +1,8 @@
-extern crate core;
 
-use std::io::{File,BufferedReader};
-use std::io::BufferPrelude;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::path::Path;
 use std::str::FromStr;
 use math::{Vec2f,Vec3f};
 
@@ -14,7 +15,7 @@ pub struct Model {
 impl Model {
     pub fn new_from_file(filename: &Path) -> Model {
         let file = match File::open(filename) {
-            Err(why) => panic!("couldn't read {}: {}", filename.display(), why.desc),
+            Err(e) => panic!("couldn't read {}: {:?}", filename.display(), e),
             Ok(file) => file
         };
 
@@ -22,16 +23,16 @@ impl Model {
         let mut faces:Vec<[i32;9]> = Vec::with_capacity(500);
         let mut texture_coords:Vec<Vec2f> = Vec::with_capacity(500);
 
-        let mut reader = BufferedReader::new(file);
+        let mut reader = BufReader::new(file);
         'line: for line in reader.lines().filter_map(|res| res.ok()) {
             let mut coords = [0f32; 3];
             let mut indices = [0i32; 9];
 
             if line.starts_with("v ") {
-                let mut iter = line.slice_from(2).words();
-                for i in range(0, 3) {
+                let mut iter = line.split_whitespace().skip(1);
+                for i in 0..3 {
                     coords[i] = match iter.next() {
-                        Some(v) => match FromStr::from_str(v) { Some(v) => v, None => continue 'line },
+                        Some(v) => match FromStr::from_str(v) { Ok(v) => v, Err(_) => continue 'line },
                         None => continue 'line
                     };
                 }
@@ -40,10 +41,10 @@ impl Model {
                 vertices.push(Vec3f::new(coords[0], coords[1], coords[2]));
 
             } else if line.starts_with("vt ") {
-                let mut iter = line.slice_from(3).words();
-                for i in range(0, 2) {
+                let mut iter = line.split_whitespace().skip(1);
+                for i in 0..2 {
                     coords[i] = match iter.next() {
-                        Some(v) => match FromStr::from_str(v) { Some(v) => v, None => continue 'line },
+                        Some(v) => match FromStr::from_str(v) { Ok(v) => v, Err(_) => continue 'line },
                         None => continue 'line
                     };
                 }
@@ -53,9 +54,9 @@ impl Model {
 
             } else if line.starts_with("f ") {
                 let mut i = 0;
-                for word in line.slice_from(2).words() {
+                for word in line.split_whitespace().skip(1) {
                     for index in word.split('/') {
-                        let idx:i32 = match FromStr::from_str(index) { Some(v) => { v }, None => continue 'line };
+                        let idx:i32 = match FromStr::from_str(index) { Ok(v) => { v }, Err(_) => continue 'line };
                         indices[i] = idx - 1;
                         i += 1;
                     };

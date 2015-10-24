@@ -1,14 +1,15 @@
 use std::default::Default;
-use std::io::{File,BufferedWriter,BufferedReader};
+use std::io::prelude::*;
+use std::fs::File;
+use std::io::BufReader;
 use std::ops::{Add,Mul};
-use std::borrow::ToOwned;
-use std::num::Float;
+use std::path::Path;
 
 macro_rules! clamp(
     ($a:expr, $min:expr, $max:expr) => ($a.min($max).max($min));
 );
 
-#[derive(Copy)]
+#[derive(Clone,Copy)]
 pub struct RgbaColor {
     pub r: f32,
     pub g: f32,
@@ -33,10 +34,6 @@ impl RgbaColor {
         self.a = clamp!(self.a, 0.0, 1.0);
         *self
     }
-}
-
-impl ToOwned<RgbaColor> for RgbaColor {
-    fn to_owned(&self) -> RgbaColor { *self.clone() }
 }
 
 impl Mul<f32> for RgbaColor {
@@ -97,7 +94,7 @@ impl TgaImage {
         assert!(height > 0, "height must be positive");
 
         let mut pixels: Vec<TgaPixel> = Vec::with_capacity((width * height) as usize);
-        for _ in range(0, width * height) {
+        for _ in 0..width*height {
             pixels.push(Default::default())
         }
 
@@ -118,73 +115,87 @@ impl TgaImage {
         }
     }
 
-    pub fn write_to_file(&self, filename: Path) {
-        let file = match File::create(&filename) {
-            Err(why) => panic!("couldn't create {}: {}", filename.display(), why.desc),
+    pub fn write_to_file(&self, filename: &Path) {
+        let mut file = match File::create(filename) {
+            Err(e) => panic!("couldn't create {}: {:?}", filename.display(), e),
             Ok(file) => file
         };
 
-        // Write TGA Header, data type 2, 24 bytes per pixel
-        let mut writer = BufferedWriter::new(file);
+        let mut data = Vec::<u8>::with_capacity((3 * self.width * self.height + 20) as usize);
         
-        writer.write(&[0,0,2,0,0,0,0,0,0,0,0,0]).unwrap();
-        writer.write_le_u16(self.width as u16).unwrap();
-        writer.write_le_u16(self.height as u16).unwrap();
-        writer.write(&[24,0]).unwrap();
+        // TGA Header, data type 2, 24 bytes per pixel
+        data.extend(&[0,0,2,0,0,0,0,0,0,0,0,0]);
+        data.push((self.width & 0xFF) as u8);
+        data.push((self.width >> 8 & 0xFF) as u8);
+        data.push((self.height & 0xFF) as u8);
+        data.push((self.height >> 8 & 0xFF) as u8);
+        data.push(24);
+        data.push(0);
 
+        // pixel data
         for p in self.pixels.iter() {
-            writer.write_u8(p.b).unwrap();
-            writer.write_u8(p.g).unwrap();
-            writer.write_u8(p.r).unwrap();
+            data.push(p.b);
+            data.push(p.g);
+            data.push(p.r);
         }
 
-        writer.flush().unwrap();
+        file.write_all(&data[..]);
     }
 
     pub fn new_from_file(filename: &Path) -> TgaImage {
-        let file = match File::open(filename) {
-            Err(why) => panic!("couldn't open {}: {}", filename.display(), why.desc),
+        let mut file = match File::open(filename) {
+            Err(e) => panic!("couldn't open {}: {:?}", filename.display(), e),
             Ok(file) => file
         };
+        
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer);
+        
+        let mut data = buffer.into_iter();
 
-        let mut reader = BufferedReader::new(file);
-
-        let id_len = reader.read_u8().unwrap();
-        let color_map_type = reader.read_u8().unwrap();
-        let data_type = reader.read_u8().unwrap();
-        reader.read_exact(5).unwrap(); // skip color map info
-        let x_origin = reader.read_le_i16().unwrap();
-        let y_origin = reader.read_le_i16().unwrap();
-        let width = reader.read_le_i16().unwrap() as i32;
-        let height = reader.read_le_i16().unwrap() as i32;
-        let bpp = reader.read_u8().unwrap();
-        let img_desc = reader.read_u8().unwrap();
+        let id_len = data.next().unwrap();
+        let color_map_type = data.next().unwrap();
+        let data_type = data.next().unwrap();
+        
+        for _ in 0..5 { let _ = data.next().unwrap(); } // skip color map info
+        
+        let x_origin = data.next().unwrap() | (data.next().unwrap() << 2);
+        let y_origin = data.next().unwrap() | (data.next().unwrap() << 2);
+        let width:i32 = (data.next().unwrap() as i32) | ((data.next().unwrap() as i32) << 8);
+        let height:i32 = (data.next().unwrap() as i32) | ((data.next().unwrap() as i32) << 8);
+        let bpp = data.next().unwrap();
+        let img_desc = data.next().unwrap();
 
         if (color_map_type != 0) {
             panic!("Can't read files with color map");
         }
 
-        reader.read_exact(id_len as usize);
+        for _ in 0..id_len { let _ = data.next().unwrap(); }
         // TODO: Read/skip color map data?
 
         let mut image = TgaImage::new(width, height);
         let mut pixel:i32 = 0;
 
         while pixel < width * height {
-            let packet = reader.read_u8().unwrap();
+            let packet = data.next().unwrap();
             let count = (packet & 127) + 1;
-            let mut bgr:Vec<u8> = vec![0, 0, 0];
 
             if packet & 128 > 0 {
-                bgr = reader.read_exact(3).unwrap();
-                for _ in range(0, count) {
-                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(bgr[2], bgr[1], bgr[0], 255));
+                let b = data.next().unwrap();
+                let g = data.next().unwrap();
+                let r = data.next().unwrap();
+                
+                for _ in 0..count {
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(r, g, b, 255));
                     pixel += 1;
                 }
             } else {
-                for _ in range(0, count) {
-                    bgr = reader.read_exact(3).unwrap();
-                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(bgr[2], bgr[1], bgr[0], 255));
+                for _ in 0..count {
+                    let b = data.next().unwrap();
+                    let g = data.next().unwrap();
+                    let r = data.next().unwrap();
+                
+                    image.set_pixel(pixel % width, pixel / width, &RgbaColor::new_from_u8(r, g, b, 255));
                     pixel += 1;
                 }
             }

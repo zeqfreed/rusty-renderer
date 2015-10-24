@@ -1,26 +1,21 @@
-use std::num::Float;
 use std::ops::{Add,Sub,Mul,Div,BitXor};
 
-#[derive(Show,Copy)]
+#[derive(Debug,Clone,Copy)]
 pub struct Vec2<T> {
     pub x: T,
     pub y: T
 }
 
 pub type Vec2f = Vec2<f32>;
-impl Vec2f {
-    #[inline(always)]
-    pub fn new(x: f32, y: f32) -> Vec2f { Vec2::<f32>::new(x, y) }
-}
 
-#[derive(Show,Copy)]
+#[derive(Debug,Clone,Copy)]
 pub struct Vec3f {
     pub x: f32,
     pub y: f32,
     pub z: f32
 }
 
-#[derive(Copy)]
+#[derive(Clone,Copy)]
 pub struct Vec3i {
     pub x: i32,
     pub y: i32,
@@ -146,3 +141,4 @@ impl Mul<Vec3f> for Vec3f {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 }
+
