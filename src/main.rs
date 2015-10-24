@@ -12,13 +12,8 @@ use math::{Vec2f,Vec3f};
 #[derive(Clone,Copy)]
 struct Vertex {
     p: Vec3f,
-    t: Vec2f
-}
-
-impl Vertex {
-    pub fn new(x: f32, y: f32, z: f32) -> Vertex {
-        Vertex { p: Vec3f::new(x, y, z), t: Vec2f::new(0.0, 0.0) }
-    }
+    t: Vec2f,
+    n: Vec3f
 }
 
 struct Renderer {
@@ -162,6 +157,7 @@ impl Renderer {
             for i in 0..3 {
                 let v = model.vertices.get(face[i+2*i] as usize).unwrap();
                 let t = model.texture_coords.get(face[i+2*i+1] as usize).unwrap();
+                let n = model.normals.get(face[i+2*i+2] as usize).unwrap();
 
                 world_coords[i] = v;
                 vertices[i] = Vertex {
@@ -170,7 +166,8 @@ impl Renderer {
                         ((v.y + 1.0) * half_height).floor(),
                         ((v.z + 1.0) * half_depth).floor()
                     ),
-                    t: Vec2f::new(t.x, t.y)
+                    t: Vec2f::new(t.x, t.y),
+                    n: Vec3f::new(n.x, n.y, n.z)
                 };
             }
 
